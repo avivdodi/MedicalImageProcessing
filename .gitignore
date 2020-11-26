@@ -1,0 +1,6 @@
+# Default ignored files
+/workspace.xml
+*.nii
+*.nii.gz
+*.h5
+*.zip
