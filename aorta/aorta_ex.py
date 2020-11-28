@@ -6,12 +6,15 @@ from skimage.feature import canny
 from skimage.transform import hough_circle, hough_circle_peaks
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
+from multiprocessing import Pool
+from functools import partial
+
 
 def compute_seg_boundary_inds(img):
     """
     Calculate the bbox of a seg.
     :param img:
-    :return:
+    :return: xmin, xmax, ymin, ymax, zmin, zmax indexes
     """
     x = np.any(img, axis=(1, 2))
     y = np.any(img, axis=(0, 2))
@@ -24,86 +27,114 @@ def compute_seg_boundary_inds(img):
     return xmin, xmax, ymin, ymax, zmin, zmax
 
 
-class Segmentation:
-    def __init__(self, path_to_nifti, path_to_L1, path_to_gt, name):
-        self.nifti_file = nib.load(path_to_nifti)
-        self.L1_nifti = nib.load(path_to_L1)
-        self.seg_gt = nib.load(path_to_gt)
-        self.img_data = None
-        self.name = name
+def AortaSegmentation(name, path):
+    path_to_L1 = f'{path}/{name}_L1.nii.gz'
+    L1_nifti = nib.load(path_to_L1)
+    L1_data = L1_nifti.get_fdata()
 
-    def AortaSegmentation(self, nifty_file, L1_seg_nifti_file):
-        # find the z range of the L1.
-        z = np.any(self.L1_nifti.get_fdata(), axis=(0, 1))
-        img = np.zeros(self.L1_nifti.get_fdata().shape, dtype=np.uint8)
-        zmin, zmax = np.where(z)[0][[0, -1]]
+    path_to_ct = f'{path}/{name}_CT.nii.gz'
+    ct_nifti = nib.load(path_to_ct)
+    ct_data = ct_nifti.get_fdata()
 
-        x_min, x_max, y_min, y_max, zmin, zmax = compute_seg_boundary_inds(self.L1_nifti.get_fdata())
-        # crop the ct
-        y_min -= 50
-        y_max -= 100
-        x_max -= 50
-        nifty_file = self.nifti_file.get_fdata()[x_min:x_max, y_min:y_max, zmin:zmax]
-        # new_nifti = nib.Nifti1Image(nifty_file.astype(np.float), self.nifti_file.affine)
-        # nib.save(new_nifti, f'{self.name}_Aorta.nii.gz')
-        for i in range(1, nifty_file.shape[2]):
-            curr_slice = nifty_file[..., i]
+    path_to_gt = f'{path}/{name}_Aorta.nii.gz'
+    gt_nifti = nib.load(path_to_gt)
+    gt_data = gt_nifti.get_fdata()
 
-            edges = canny(curr_slice, sigma=3, low_threshold=0.2, high_threshold=0.8)
-            hough_radii = np.arange(14, 19, 2)
-            hough_res = hough_circle(edges, hough_radii)
-            accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii,
-                                                       total_num_peaks=1)
+    # # find the z range of the L1.
+    # z = np.any(L1_data, axis=(0, 1))
+    img = np.zeros(L1_data.shape, dtype=np.uint8)
+    # zmin, zmax = np.where(z)[0][[0, -1]]
 
-            fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(10, 4))
-            image = curr_slice
-            for center_y, center_x, radius in zip(cy, cx, radii):
-                # circy, circx = circle_perimeter(center_y, center_x, radius,
-                #                                 shape=image.shape)
+    x_min, x_max, y_min, y_max, zmin, zmax = compute_seg_boundary_inds(L1_data)
+    # crop the ct
+    y_min -= 50
+    y_max -= 100
+    x_max -= 50
+    new_nifti_file = ct_data[x_min:x_max, y_min:y_max, zmin:zmax]
+    # new_nifti = nib.Nifti1Image(new_nifti_file.astype(np.float), self.nifti_file.affine)
+    # nib.save(new_nifti, f'{self.name}_Aorta.nii.gz')
 
-                circ = Circle((center_y, center_x), radius)
-                ax.add_patch(circ)
+    # run on every slice.
+    for i in range(1, new_nifti_file.shape[2]):
+        curr_slice = new_nifti_file[..., i]
 
-                rr, cc = disk((center_y, center_x), radius)
-                # todo fix the plots
-                img[x_min + rr, y_min + cc, i + zmin] = 1
+        # find the edges
+        edges = canny(curr_slice, sigma=3, low_threshold=0.2, high_threshold=0.8)
 
-            ax.imshow(image, cmap=plt.cm.gray)
-            plt.show()
-        new_nifti = nib.Nifti1Image(img.astype(np.float), self.nifti_file.affine)
-        nib.save(new_nifti, f'{self.name}_Aorta.nii.gz')
-        # compare to GT
-        vod, dice = self.evaluateSegmentation(img, zmin, zmax)
-        return vod, dice
+        # find circles in the slice
+        hough_radii = np.arange(14, 19, 2)
+        hough_res = hough_circle(edges, hough_radii)
+        accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii,
+                                                   total_num_peaks=1)
 
-    def evaluateSegmentation(self, est_seg, zmin, zmax):
-        # compute the dice
-        seg1_data = self.seg_gt.get_fdata()[:, :, zmin:zmax]
-        seg2_data = est_seg[:, :, zmin:zmax]
-        intersection = np.logical_and(seg1_data, seg2_data)
-        union = union = np.logical_or(seg1_data, seg2_data)
+        fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(10, 4))
+        image = curr_slice
+        for center_y, center_x, radius in zip(cy, cx, radii):
+            # circy, circx = circle_perimeter(center_y, center_x, radius,
+            #                                 shape=image.shape)
+            # plot the circles if needed.
+            circ = Circle((center_y, center_x), radius)
+            ax.add_patch(circ)
 
-        DICE_result = (2 * intersection.sum()) / (seg1_data.sum() + seg2_data.sum())
-        VOD_result = 1 - (intersection.sum() / union.sum())
-        # compute the vod
-        print(f'Case {self.name} VOD, DICE: {np.round(VOD_result, 3)} , {np.round(DICE_result, 3)}')
-        return VOD_result, DICE_result
+            # making a disk on the segmentation.
+            rr, cc = disk((center_y, center_x), radius)
+            # todo fix the plots
+            img[x_min + rr, y_min + cc, i + zmin] = 1
+
+        ax.imshow(image, cmap=plt.cm.gray)
+        plt.show()
+    # save the aorta
+    new_nifti = nib.Nifti1Image(img.astype(np.float), ct_nifti.affine)
+    nib.save(new_nifti, f'{name}_Aorta.nii.gz')
+    # compare to GT
+    vod, dice = evaluateSegmentation(img, zmin, zmax, gt_data, name)
+    return vod, dice
+
+
+def evaluateSegmentation(est_seg, zmin, zmax, gt_data, name):
+    """
+    compute the dice and vod.
+    :param est_seg: seg to compute
+    :param zmin: lower z value of the L1.
+    :param zmax: upper z value of the L1
+    :param gt_data: Ground Truth seg file
+    :param name: case name
+    :return: tuple of VOD and DICE
+    """
+
+    seg1_data = gt_data[:, :, zmin:zmax]
+    seg2_data = est_seg[:, :, zmin:zmax]
+    intersection = np.logical_and(seg1_data, seg2_data)
+    union = np.logical_or(seg1_data, seg2_data)
+
+    dice_result = (2 * intersection.sum()) / (seg1_data.sum() + seg2_data.sum())
+    vod_result = 1 - (intersection.sum() / union.sum())
+
+    print(f'Case {name} VOD, DICE: {np.round(vod_result, 3)} , {np.round(dice_result, 3)}')
+    return vod_result, dice_result
 
 
 def main():
     path = '/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data'
-    # file = 'Case1_CT.nii.gz'
     dice_dict = {}
     vod_dict = {}
+    cases = []
     for file in os.listdir(path):
         if 'CT' in file:
             if file.split('_')[0] in ['Case5', 'HardCase1', 'HardCase2', 'HardCase3', 'HardCase4']:
                 continue
-            name = file.split('_')[0]
-            seg = Segmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz', f'{path}/{name}_Aorta.nii.gz', name)
-            vod, dice = seg.AortaSegmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz')
-            dice_dict[name] = dice
-            vod_dict[name] = vod
+            cases.append(file.split('_')[0])
+
+    with Pool() as pool:
+        vod_dice = list(pool.map(partial(AortaSegmentation, path=path), cases))
+
+    print(vod_dice)
+    pass
+    name = file.split('_')[0]
+    seg = Segmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz', f'{path}/{name}_Aorta.nii.gz', name)
+    vod, dice = seg.AortaSegmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz')
+    dice_dict[name] = dice
+    vod_dict[name] = vod
 
     # plot the dice and vod
     lists = sorted(dice_dict.items())  # sorted by key, return a list of tuples
@@ -113,7 +144,6 @@ def main():
     lists = sorted(vod_dict.items())
     x, y = zip(*lists)
     ax.plot(x, y, '-o', label='VOD coefficient')
-
 
     # plt.plot(x, y, 'o-')
     plt.xlabel('Case name')
