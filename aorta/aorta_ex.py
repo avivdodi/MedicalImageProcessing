@@ -28,6 +28,13 @@ def compute_seg_boundary_inds(img):
 
 
 def AortaSegmentation(name, path):
+    """
+    This function gets the case name and path, find the location of the L1 in the ct, and search for circles in the CT
+    near this position.
+    :param name:
+    :param path:
+    :return: The VOD and DICE results of the comparison between gt to my results.
+    """
     path_to_L1 = f'{path}/{name}_L1.nii.gz'
     L1_nifti = nib.load(path_to_L1)
     L1_data = L1_nifti.get_fdata()
@@ -129,34 +136,23 @@ def main():
 
     dice_dict = dict((name, dice) for name, vod, dice in vod_dice)
     vod_dict = dict((name, vod) for name, vod, dice in vod_dice)
-    print(dice_dict)
-    print(vod_dict)
-    # pass
-    # name = file.split('_')[0]
-    # seg = Segmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz', f'{path}/{name}_Aorta.nii.gz', name)
-    # vod, dice = seg.AortaSegmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz')
-    # dice_dict[name] = dice
-    # vod_dict[name] = vod
 
     # plot the dice and vod
-    lists = sorted(dice_dict.items())  # sorted by key, return a list of tuples
-    x, y = zip(*lists)  # unpack a list of pairs into two tuples
+    lists = sorted(dice_dict.items())
+    x, y = zip(*lists)
     fig, ax = plt.subplots()
     ax.plot(x, y, '-o', label='DICE coefficient')
     lists = sorted(vod_dict.items())
     x, y = zip(*lists)
     ax.plot(x, y, '-o', label='VOD coefficient')
 
-    # plt.plot(x, y, 'o-')
     plt.xlabel('Case name')
     plt.ylabel('Value')
-    # plt.title(f'{name}')
+    plt.title('Aorta segmentation vs. GroundTruth')
 
     ax.legend()
     plt.savefig(f'Aorta_coefficients_plot.png')
     plt.show()
-
-    # plot the graph
 
 
 if __name__ == '__main__':

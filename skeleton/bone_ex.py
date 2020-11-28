@@ -19,11 +19,11 @@ class Segmentation:
 
     def SegmentationByTH(self, Imin, skeleton=False):
         """
-        This function save the segmentation based on min and max threshold.
-        If the min threshold is the final for a case (skeleton=True parameter),
-        I'm remove small objects from the segmentation using the library skimage.morphology,
-        and closing holes using the binary closing from the same library.
-        The function return the threshold number and number of labels.
+        This function saves the segmentation based on the min and max threshold. If the min threshold is the final for
+        a case (skeleton=True parameter), I remove small objects from the segmentation using the library
+        skimage.morphology, and close holes using the binary closing from the same library.
+        The function returns the threshold number and number of labels.
+
 
         :param Imin: the i-min th.
         :param skeleton: If true, the seg is saved with remove small objects and binary closing.
@@ -55,11 +55,12 @@ class Segmentation:
 
     def SkeletonTHFinder(self):
         """
-        This function find the lower threshold based on the minimum number of labels.
-        The function running on a range(150, 500, 14) of min thresholds using mulltiprocessing, 
-        send it to the SegmentationByTH and make a dictionary of TH:number of labels.
-        After that, It's find the minimum number of labels from the dictionary, 
-        take the specific TH and send it back to SegmentationByTH on purpose to make the final skeleton segmenetation.
+        This function finds the lower threshold based on the minimum number of labels.
+        The function running on a range(150, 500, 14) of min thresholds using multiprocessing, send it to the 
+        SegmentationByTH and make a dictionary of TH: number of labels.
+        After that, It's finding the minimum number of labels from the dictionary, take the specific TH and send it 
+        back to SegmentationByTH on purpose to make the final skeleton segmentation.
+
         :param
         :return: int of the lower TH
         """''
