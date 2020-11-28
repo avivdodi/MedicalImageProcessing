@@ -88,7 +88,7 @@ def AortaSegmentation(name, path):
     nib.save(new_nifti, f'{name}_Aorta.nii.gz')
     # compare to GT
     vod, dice = evaluateSegmentation(img, zmin, zmax, gt_data, name)
-    return vod, dice
+    return name, vod, dice
 
 
 def evaluateSegmentation(est_seg, zmin, zmax, gt_data, name):
@@ -116,8 +116,6 @@ def evaluateSegmentation(est_seg, zmin, zmax, gt_data, name):
 
 def main():
     path = '/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data'
-    dice_dict = {}
-    vod_dict = {}
     cases = []
     for file in os.listdir(path):
         if 'CT' in file:
@@ -125,16 +123,20 @@ def main():
                 continue
             cases.append(file.split('_')[0])
 
+    # Run all the cases with Groundtruth with multiprocessing
     with Pool() as pool:
         vod_dice = list(pool.map(partial(AortaSegmentation, path=path), cases))
 
-    print(vod_dice)
-    pass
-    name = file.split('_')[0]
-    seg = Segmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz', f'{path}/{name}_Aorta.nii.gz', name)
-    vod, dice = seg.AortaSegmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz')
-    dice_dict[name] = dice
-    vod_dict[name] = vod
+    dice_dict = dict((name, dice) for name, vod, dice in vod_dice)
+    vod_dict = dict((name, vod) for name, vod, dice in vod_dice)
+    print(dice_dict)
+    print(vod_dict)
+    # pass
+    # name = file.split('_')[0]
+    # seg = Segmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz', f'{path}/{name}_Aorta.nii.gz', name)
+    # vod, dice = seg.AortaSegmentation(f'{path}/{file}', f'{path}/{name}_L1.nii.gz')
+    # dice_dict[name] = dice
+    # vod_dict[name] = vod
 
     # plot the dice and vod
     lists = sorted(dice_dict.items())  # sorted by key, return a list of tuples
