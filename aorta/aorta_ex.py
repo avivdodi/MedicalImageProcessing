@@ -27,6 +27,23 @@ def compute_seg_boundary_inds(img):
     return xmin, xmax, ymin, ymax, zmin, zmax
 
 
+def check_orientation(ct_image, ct_arr):
+    """
+    Check the NIfTI orientation, and flip to  'RPS' if needed.
+    :param ct_image: NIfTI file
+    :param ct_arr: array file
+    :return: array after flipping
+    """
+    x, y, z = nib.aff2axcodes(ct_image.affine)
+    if x != 'R':
+        ct_arr = nib.orientations.flip_axis(ct_arr, axis=0)
+    if y != 'P':
+        ct_arr = nib.orientations.flip_axis(ct_arr, axis=1)
+    if z != 'S':
+        ct_arr = nib.orientations.flip_axis(ct_arr, axis=2)
+    return ct_arr
+
+
 def AortaSegmentation(name, path):
     """
     This function gets the case name and path, find the location of the L1 in the ct, and search for circles in the CT
@@ -47,10 +64,12 @@ def AortaSegmentation(name, path):
     gt_nifti = nib.load(path_to_gt)
     gt_data = gt_nifti.get_fdata()
 
-    # # find the z range of the L1.
-    # z = np.any(L1_data, axis=(0, 1))
     img = np.zeros(L1_data.shape, dtype=np.uint8)
-    # zmin, zmax = np.where(z)[0][[0, -1]]
+
+    # Make sure that the nifti's in the same orientation
+    L1_data = check_orientation(L1_nifti, L1_data)
+    ct_data = check_orientation(ct_nifti, ct_data)
+    gt_data = check_orientation(gt_nifti, gt_data)
 
     x_min, x_max, y_min, y_max, zmin, zmax = compute_seg_boundary_inds(L1_data)
     # crop the ct
@@ -58,8 +77,6 @@ def AortaSegmentation(name, path):
     y_max -= 100
     x_max -= 50
     new_nifti_file = ct_data[x_min:x_max, y_min:y_max, zmin:zmax]
-    # new_nifti = nib.Nifti1Image(new_nifti_file.astype(np.float), self.nifti_file.affine)
-    # nib.save(new_nifti, f'{self.name}_Aorta.nii.gz')
 
     # run on every slice.
     for i in range(1, new_nifti_file.shape[2]):
@@ -73,23 +90,21 @@ def AortaSegmentation(name, path):
         hough_res = hough_circle(edges, hough_radii)
         accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii,
                                                    total_num_peaks=1)
-
-        fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(10, 4))
+        # plot the circles if needed.
+        # fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(10, 4))
         image = curr_slice
         for center_y, center_x, radius in zip(cy, cx, radii):
-            # circy, circx = circle_perimeter(center_y, center_x, radius,
-            #                                 shape=image.shape)
             # plot the circles if needed.
-            circ = Circle((center_y, center_x), radius)
-            ax.add_patch(circ)
+            # circ = Circle((center_y, center_x), radius)
+            # ax.add_patch(circ)
 
             # making a disk on the segmentation.
             rr, cc = disk((center_y, center_x), radius)
-            # todo fix the plots
             img[x_min + rr, y_min + cc, i + zmin] = 1
 
-        ax.imshow(image, cmap=plt.cm.gray)
-        plt.show()
+        # ax.imshow(image, cmap=plt.cm.gray)
+        # plt.show()
+
     # save the aorta
     new_nifti = nib.Nifti1Image(img.astype(np.float), ct_nifti.affine)
     nib.save(new_nifti, f'{name}_Aorta.nii.gz')
@@ -122,6 +137,10 @@ def evaluateSegmentation(est_seg, zmin, zmax, gt_data, name):
 
 
 def main():
+    """
+    This func run on all of the cases that contains L1 seg file, and plot the vod and dice coefficients in plot.
+    :return:
+    """
     path = '/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data'
     cases = []
     for file in os.listdir(path):

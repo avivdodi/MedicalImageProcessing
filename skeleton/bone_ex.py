@@ -89,6 +89,11 @@ class Segmentation:
 
 
 def main():
+    """
+    This function start's the segmentation process on all of the CT's.
+    :return:
+    """
+    # path to main data
     path = '/cs/casmip/public/for_aviv/ex2/Targil1_data'
     for file in os.listdir(path):
         if 'CT' in file:
