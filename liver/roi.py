@@ -1,7 +1,8 @@
 import nibabel as nib
 import numpy as np
-from skimage.morphology import label, remove_small_objects, convex_hull_image, convex_hull_object
+from skimage.morphology import label, remove_small_objects, convex_hull_image, convex_hull_object, ball, dilation
 import utils
+from skimage.transform import pyramid_gaussian
 
 
 def IsolateBody(ct_scan):
@@ -135,7 +136,7 @@ def liver_roi(body_seg, ct_scan, aorta_nii):
 
 def findSeeds(ct_scan, roi, seeds_num=200):
     """
-    Find sample seeds from roi on ct_scan.
+    Find sample seeds from roi on ct_scan, after randomized choosing and neighbor averaging.
     :param ct_scan: The scan
     :param roi: The segmentation to search for seeds.
     :param seeds_num: number of seeds.
@@ -143,9 +144,16 @@ def findSeeds(ct_scan, roi, seeds_num=200):
     """
     seeds_list = []
     ct_arr = ct_scan.get_fdata()
+
+    # Take the second array after the downscale.
+    ct_arr = tuple(pyramid_gaussian(ct_arr, downscale=2, multichannel=True))[1]
+    roi = tuple(pyramid_gaussian(roi.astype(float), downscale=2, multichannel=True))[1]
+
+    # find random points
     points = np.argwhere(roi)
     np.random.shuffle(points)
 
+    # take the HU value in the random points.
     for ind in points[0:seeds_num]:
         seeds_list.append(ct_arr[ind[0], ind[1], ind[2]])
 
@@ -153,10 +161,33 @@ def findSeeds(ct_scan, roi, seeds_num=200):
 
 
 def multipleSeedsRG(ct_scan, roi):
-    # todo fixme
-    seeds_list = findSeeds(ct_scan, roi)
+    def homogeneity(hu_old, hu_new, threshold=10):
+        if abs(hu_old - hu_new) < threshold:
+            return True
+        return False
 
+    # todo fixme
+    # get the points
+    seeds_list = findSeeds(ct_scan, roi)
+    ct_arr = ct_scan.get_fdata()
+    image = np.zeros(ct_arr.shape, dtype=np.uint8)
     # Perform Seeded Region Growing with N initial points
+    new_pix = 11
+    while new_pix > 10:
+        for seed in seeds_list:
+            ball = ball(1)
+            # check the ball on the image
+            image[seed[0], seed[1], seed[2]] = 1
+            dilated = dilation(image, selem=ball)
+            new_area = dilated - image
+            new_pix = np.sum(new_area)
+            for pixel in new_area:
+                if homogeneity():
+                    image[.....] = 1
+
+        #      check if the pixels inside a range
+        # add whatever you want
+        # dilate again, and if 10 pixels added continue
 
     return liver_seg
 
@@ -177,6 +208,7 @@ def segmentLiver(ct_nii, aorta_nii, output_name):
 
 if __name__ == '__main__':
     load = nib.load('/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case2_CT.nii.gz')
-    body_seg = IsolateBody(load)
-    lungs_seg, cc, bb = IsolateBS(body_seg, load.affine)
-    lungs_band = ThreeDBand(body_seg, lungs_seg, bb, cc)
+    # body_seg = IsolateBody(load)
+    # lungs_seg, cc, bb = IsolateBS(body_seg, load.affine)
+    # lungs_band = ThreeDBand(body_seg, lungs_seg, bb, cc)
+    roi = nib.load('/cs/usr/avivd/Desktop/Untitled.nii.gz').get_fdata()
