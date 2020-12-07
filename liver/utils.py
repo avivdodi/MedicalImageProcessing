@@ -1,5 +1,6 @@
 import nibabel as nib
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def compute_seg_boundary_inds(img):
@@ -68,6 +69,34 @@ def compute_widest_slice(img):
     y_sum = np.sum(img, axis=1)
     z_index = np.argmax(y_sum, axis=0)
     return np.argmax(z_index)
+
+
+def plot_results(vod_dice, title):
+    """
+    Plot the results based on the input lis of tuples
+    :param vod_dice: list of tuple
+    :param title: plot title
+    :return: plot
+    """
+    dice_dict = dict((name, dice) for name, vod, dice in vod_dice)
+    vod_dict = dict((name, vod) for name, vod, dice in vod_dice)
+
+    # plot the dice and vod
+    lists = sorted(dice_dict.items())
+    x, y = zip(*lists)
+    fig, ax = plt.subplots()
+    ax.plot(x, y, '-o', label='DICE coefficient')
+    lists = sorted(vod_dict.items())
+    x, y = zip(*lists)
+    ax.plot(x, y, '-o', label='VOD coefficient')
+
+    plt.xlabel('Case name')
+    plt.ylabel('Value')
+    plt.title(title)
+
+    ax.legend()
+    plt.savefig(f'{title}.png')
+    plt.show()
 
 
 if __name__ == '__main__':
