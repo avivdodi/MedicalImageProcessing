@@ -1,9 +1,9 @@
+import os
 import nibabel as nib
 import numpy as np
 from skimage.morphology import label, remove_small_objects, convex_hull_image, convex_hull_object, ball, dilation
 import utils
 from skimage.transform import pyramid_gaussian
-import os
 
 
 class Segmentation:
@@ -19,19 +19,20 @@ class Segmentation:
         :return:Body segmentation
         """
         ct_arr = self.ct_arr
+        body_seg = np.zeros(ct_arr.shape, dtype=np.uint8)
 
         # filter th between -500 to 2000
-        ct_arr[(ct_arr > -500) & (ct_arr < 2000)] = 1
-        ct_arr[(ct_arr <= -500) | (ct_arr >= 2000)] = 0
+        body_seg[(ct_arr > -500) & (ct_arr < 2000)] = 1
+        body_seg[(ct_arr <= -500) | (ct_arr >= 2000)] = 0
 
         # clean noise
-        ct_arr = label(ct_arr)
-        ct_arr = remove_small_objects(ct_arr, min_size=200, connectivity=24)
+        body_seg = label(body_seg)
+        body_seg = remove_small_objects(body_seg, min_size=200, connectivity=24)
 
         # compute the largest connected component
-        ct_arr = label(ct_arr)
-        assert (ct_arr.max() != 0)  # assume at least 1 CC
-        body_seg = ct_arr == np.argmax(np.bincount(ct_arr.flat)[1:]) + 1
+        body_seg = label(body_seg)
+        assert (body_seg.max() != 0)  # assume at least 1 CC
+        body_seg = body_seg == np.argmax(np.bincount(body_seg.flat)[1:]) + 1
 
         # new_nifti = nib.Nifti1Image(body_seg.astype(np.float), ct_scan.affine)
         # nib.save(new_nifti, f'test.nii.gz')
@@ -74,7 +75,7 @@ class Segmentation:
 
         return lungs_seg, cc, bb
 
-    # todo fix
+    # todo fix the functiion
     def ThreeDBand(self, body_seg, lungs_seg, bb, cc):
         # todo fix the function.
         """
@@ -97,7 +98,7 @@ class Segmentation:
         # nib.save(new_nifti, f'band.nii.gz')
         return band
 
-    # todo fix
+    # todo fix the functiion
     def MergedROI(self, ct_scan, aorta_arr):
         # fixme
         ct_arr = ct_scan.get_fdata()
@@ -115,31 +116,45 @@ class Segmentation:
 
         # return roi
 
-    # todo fix the functiion
-    def liver_roi(self, body_seg, ct_scan, aorta_nii):
-        # fixme
-
+    def liver_roi(self, body_seg, aorta_nii):
         ct_arr = self.ct_arr
         aorta_arr = aorta_nii.get_fdata()
 
+        img = np.zeros(ct_arr.shape, dtype=np.uint8)
+
+        xmin, xmax, ymin, ymax, zmin, zmax = utils.compute_seg_boundary_inds(aorta_arr)
+
+        # middle of the aorta
+        z = (zmax - zmin)
+        x = xmax - xmin + 200
+        y = ymax - ymin
+
+        # make a cube in the middle of the liver (approx)
+        img[x + 100:x + 150, y + 50:y + 100, z:z + 20] = 1
+
+        # new_nifti = nib.Nifti1Image(img.astype(np.float), aorta_nii.affine)
+        # nib.save(new_nifti, f'img.nii.gz')
+
         # th
-        ct_arr[(ct_arr > -100) & (ct_arr < 200)] = 1
-        ct_arr[(ct_arr <= -100) | (ct_arr >= 200)] = 0
-        intersection = np.logical_and(body_seg, ct_arr)
+        # ct_arr[(ct_arr > -100) & (ct_arr < 200)] = 1
+        # ct_arr[(ct_arr <= -100) | (ct_arr >= 200)] = 0
+        # intersection = np.logical_and(body_seg, ct_arr)
+        # new_nifti = nib.Nifti1Image(intersection.astype(np.float), aorta_nii.affine)
+        # nib.save(new_nifti, f'intersection.nii.gz')
+        # # find half of the aorta
+        #
+        # # find the largest label there
+        #
+        # ct_label = label(intersection)
+        # liver_seg = ct_label == np.argmax(np.bincount(ct_label.flat)[1:]) + 1
+        #
+        # # todo check this func by save the nifti. maybe we need to use the aorta seg and location.
+        # # save
+        # new_nifti = nib.Nifti1Image(liver_seg.astype(np.float), aorta_nii.affine)
+        # nib.save(new_nifti, f'liver.nii.gz')
+        return img
 
-        # find half of the aorta
-
-        # find the largest label there
-
-        ct_label = label(intersection)
-        liver_seg = ct_label == np.argmax(np.bincount(ct_label.flat)[1:]) + 1
-
-        # todo check this func by save the nifti. maybe we need to use the aorta seg and location.
-        # save
-
-        return roi
-
-    def findSeeds(self, ct_scan, roi, seeds_num=200):
+    def findSeeds(self, roi, seeds_num=200):
         """
         Find sample seeds from roi on ct_scan, after randomized choosing and neighbor averaging.
         :param ct_scan: The scan
@@ -160,41 +175,47 @@ class Segmentation:
 
         # take the HU value in the random points.
         for ind in points[0:seeds_num]:
-            seeds_list.append(ct_arr[ind[0], ind[1], ind[2]])
-
+            # seeds_list.append(ct_arr[ind[0], ind[1], ind[2]])
+            seeds_list.append(ind)
         return seeds_list
 
     def multipleSeedsRG(self, roi):
-
         def homogeneity(new_pix_hu, lower_threshold=-100, upper_threshold=200):
             if lower_threshold <= new_pix_hu <= upper_threshold:
                 return True
             return False
 
         # get the points
-        seeds_list = self.findSeeds(ct_scan, roi)
+        seeds_list = self.findSeeds(roi)
         ct_arr = self.ct_arr
         image = np.zeros(ct_arr.shape, dtype=np.uint8)
         # Perform Seeded Region Growing with N initial points
+        i=0
         for seed in seeds_list:
             image[seed[0], seed[1], seed[2]] = 1
-            ball = ball(1)
+            sphere = ball(1)
             # check the ball on the image
-            dilated = dilation(image, selem=ball)
+            dilated = dilation(image, selem=sphere)
             new_area = dilated - image
             new_pix = np.sum(new_area)
 
-            while new_pix > 10:
-                for pixel in new_area:
-                    if homogeneity(ct_arr[pixel]):  # TODO is this hu?
-                        # IMGAE[PIXEL]
-                        image[.....] = 1
 
+
+            while new_pix > 10:
+                points = np.argwhere(new_area==1)
+                for pixel in points:
+                    print(len(points))
+                    if homogeneity(ct_arr[pixel[0], pixel[1], pixel[2]]):  # TODO is this hu?
+                        image[pixel[0], pixel[1], pixel[2]] = 1
+            i+=1
+            if i==2:
+                break
         #      check if the pixels inside a range
         # add whatever you want
         # dilate again, and if 10 pixels added continue
         #  image shold be the liver_seg
-
+        new_nifti = nib.Nifti1Image(image.astype(np.float), nib.load('/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case1_Aorta.nii.gz').affine)
+        nib.save(new_nifti, f'img.nii.gz')
         return liver_seg
 
     def segmentLiver(self, aorta_nii, output_name):
@@ -212,20 +233,27 @@ class Segmentation:
 
 
 if __name__ == '__main__':
-    data_path = ''  # fixme
+    data_path = '/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data'  # fixme
     for file in os.listdir(data_path):
         if 'CT' in file:
-            name = file.split('.')[0]
-            seg = Segmentation(f'{data_path}/{file}', name)
-            body_seg = seg.IsolateBody()
-            lungs_seg, cc, bb = seg.IsolateBS(body_seg)
+            if 'Case1' in file:
+                name = file.split('.')[0]
+                seg = Segmentation(f'/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case1_CT.nii.gz',
+                                   name)
+                body_seg = seg.IsolateBody()
+                aorta_nii = nib.load(
+                    f'/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case1_Aorta.nii.gz')
+                roi = seg.liver_roi(body_seg, aorta_nii)
+                seg.multipleSeedsRG(roi)
+            # lungs_seg, cc, bb = seg.IsolateBS(body_seg)
+            #
+            # liver_seg = seg.multipleSeedsRG(roi)
+            #
+            # vod, dice = utils.evaluateSegmentation(img, zmin, zmax, gt_data, name)
+            # liver_roi(self, body_seg, aorta_nii)
 
-            liver_seg = seg.multipleSeedsRG(roi)
-
-            vod, dice = utils.evaluateSegmentation(img, zmin, zmax, gt_data, name)
-
-    load = nib.load('/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case2_CT.nii.gz')
-    # body_seg = IsolateBody(load)
-    # lungs_seg, cc, bb = IsolateBS(body_seg, load.affine)
-    # lungs_band = ThreeDBand(body_seg, lungs_seg, bb, cc)
-    roi = nib.load('/cs/usr/avivd/Desktop/Untitled.nii.gz').get_fdata()
+    # load = nib.load('/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case2_CT.nii.gz')
+    # # body_seg = IsolateBody(load)
+    # # lungs_seg, cc, bb = IsolateBS(body_seg, load.affine)
+    # # lungs_band = ThreeDBand(body_seg, lungs_seg, bb, cc)
+    # roi = nib.load('/cs/usr/avivd/Desktop/Untitled.nii.gz').get_fdata()
