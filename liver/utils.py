@@ -37,7 +37,7 @@ def check_orientation(ct_image, ct_arr):
     return ct_arr
 
 
-def evaluateSegmentation(est_seg, zmin, zmax, gt_data, name):
+def evaluateSegmentation(est_seg, gt_data, name):  # zmin, zmax,
     """
     compute the dice and vod.
     :param est_seg: seg to compute
@@ -48,8 +48,8 @@ def evaluateSegmentation(est_seg, zmin, zmax, gt_data, name):
     :return: tuple of VOD and DICE
     """
 
-    seg1_data = gt_data[:, :, zmin:zmax]
-    seg2_data = est_seg[:, :, zmin:zmax]
+    seg1_data = gt_data  # [:, :, zmin:zmax]
+    seg2_data = est_seg  # [:, :, zmin:zmax]
     intersection = np.logical_and(seg1_data, seg2_data)
     union = np.logical_or(seg1_data, seg2_data)
 
@@ -57,7 +57,7 @@ def evaluateSegmentation(est_seg, zmin, zmax, gt_data, name):
     vod_result = 1 - (intersection.sum() / union.sum())
 
     print(f'Case {name} VOD, DICE: {np.round(vod_result, 3)} , {np.round(dice_result, 3)}')
-    return vod_result, dice_result
+    return name, vod_result, dice_result
 
 
 def compute_widest_slice(img):

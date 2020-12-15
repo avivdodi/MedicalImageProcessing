@@ -11,6 +11,8 @@ class Segmentation:
         self.nii_scan = nib.load(path_to_scan)
         self.name = name
         self.ct_arr = utils.check_orientation(self.nii_scan, self.nii_scan.get_fdata())
+        new_nifti = nib.Nifti1Image(self.ct_arr.astype(np.float), self.nii_scan.affine)
+        nib.save(new_nifti, f'{name}-new_scan.nii.gz')
 
     def IsolateBody(self):
         """
@@ -34,8 +36,8 @@ class Segmentation:
         assert (body_seg.max() != 0)  # assume at least 1 CC
         body_seg = body_seg == np.argmax(np.bincount(body_seg.flat)[1:]) + 1
 
-        # new_nifti = nib.Nifti1Image(body_seg.astype(np.float), ct_scan.affine)
-        # nib.save(new_nifti, f'test.nii.gz')
+        new_nifti = nib.Nifti1Image(body_seg.astype(np.float), self.nii_scan.affine)
+        nib.save(new_nifti, f'{self.name}-body.nii.gz')
 
         return body_seg
 
@@ -63,8 +65,8 @@ class Segmentation:
         lungs_seg = label(lungs_seg)
         lungs_seg = lungs_seg == np.argmax(np.bincount(lungs_seg.flat)[1:]) + 1
 
-        # new_nifti = nib.Nifti1Image(lungs_seg.astype(np.float), aff)
-        # nib.save(new_nifti, f'test.nii.gz')
+        new_nifti = nib.Nifti1Image(lungs_seg.astype(np.float), self.nii_scan.affine)
+        nib.save(new_nifti, f'{self.name}-lungs.nii.gz')
 
         xmin, xmax, ymin, ymax, zmin, zmax = utils.compute_seg_boundary_inds(lungs_seg)
 
@@ -75,7 +77,6 @@ class Segmentation:
 
         return lungs_seg, cc, bb
 
-    # todo fix the functiion
     def ThreeDBand(self, body_seg, lungs_seg, bb, cc):
         # todo fix the function.
         """
@@ -92,15 +93,13 @@ class Segmentation:
             if bb <= i <= cc:
                 band[:, :, i] = body_seg[:, :, i]
 
-        print(band)
         # aff = nib.load('/cs/casmip/public/for_aviv/MedicalImageProcessing/liver/test.nii.gz').affine
         # new_nifti = nib.Nifti1Image(band.astype(np.float), aff)
         # nib.save(new_nifti, f'band.nii.gz')
         return band
 
-    # todo fix the functiion
     def MergedROI(self, ct_scan, aorta_arr):
-        # fixme
+        # todo fix the function
         ct_arr = ct_scan.get_fdata()
         img = np.zeros(ct_arr.shape, dtype=np.uint8)
 
@@ -117,41 +116,31 @@ class Segmentation:
         # return roi
 
     def liver_roi(self, body_seg, aorta_nii):
+        """
+        Making an initial roi by finding the middle of the aorta, and draw a cube on the right side of the aorta.
+        :param body_seg: Body segmentation
+        :param aorta_nii: Aorta segmentation
+        :return: ROI image
+        """
         ct_arr = self.ct_arr
         aorta_arr = aorta_nii.get_fdata()
+        aorta_arr = utils.check_orientation(aorta_nii, aorta_arr)
 
         img = np.zeros(ct_arr.shape, dtype=np.uint8)
 
         xmin, xmax, ymin, ymax, zmin, zmax = utils.compute_seg_boundary_inds(aorta_arr)
 
         # middle of the aorta
-        z = (zmax - zmin)
+        z = zmax - zmin
         x = xmax - xmin + 200
         y = ymax - ymin
 
         # make a cube in the middle of the liver (approx)
-        img[x + 100:x + 150, y + 50:y + 100, z:z + 20] = 1
+        img[x + 100:x + 150, y + 50:y + 100, z - 15:z + 5] = 1
 
-        # new_nifti = nib.Nifti1Image(img.astype(np.float), aorta_nii.affine)
-        # nib.save(new_nifti, f'img.nii.gz')
+        new_nifti = nib.Nifti1Image(img.astype(np.float), aorta_nii.affine)
+        nib.save(new_nifti, f'{self.name}-roi.nii.gz')
 
-        # th
-        # ct_arr[(ct_arr > -100) & (ct_arr < 200)] = 1
-        # ct_arr[(ct_arr <= -100) | (ct_arr >= 200)] = 0
-        # intersection = np.logical_and(body_seg, ct_arr)
-        # new_nifti = nib.Nifti1Image(intersection.astype(np.float), aorta_nii.affine)
-        # nib.save(new_nifti, f'intersection.nii.gz')
-        # # find half of the aorta
-        #
-        # # find the largest label there
-        #
-        # ct_label = label(intersection)
-        # liver_seg = ct_label == np.argmax(np.bincount(ct_label.flat)[1:]) + 1
-        #
-        # # todo check this func by save the nifti. maybe we need to use the aorta seg and location.
-        # # save
-        # new_nifti = nib.Nifti1Image(liver_seg.astype(np.float), aorta_nii.affine)
-        # nib.save(new_nifti, f'liver.nii.gz')
         return img
 
     def findSeeds(self, roi, seeds_num=200):
@@ -180,6 +169,12 @@ class Segmentation:
         return seeds_list
 
     def multipleSeedsRG(self, roi):
+        """
+        Seeded Region Growing implementation by dilation each seed by a ball shape and check the new HU values of the added pixels.
+        :param roi:
+        :return: liver segmentation
+        """
+
         def homogeneity(new_pix_hu, lower_threshold=-100, upper_threshold=200):
             if lower_threshold <= new_pix_hu <= upper_threshold:
                 return True
@@ -190,7 +185,7 @@ class Segmentation:
         ct_arr = self.ct_arr
         image = np.zeros(ct_arr.shape, dtype=np.uint8)
         # Perform Seeded Region Growing with N initial points
-        i=0
+
         for seed in seeds_list:
             image[seed[0], seed[1], seed[2]] = 1
             sphere = ball(1)
@@ -199,61 +194,52 @@ class Segmentation:
             new_area = dilated - image
             new_pix = np.sum(new_area)
 
-
-
-            while new_pix > 10:
-                points = np.argwhere(new_area==1)
+            if new_pix > 10:
+                points = np.argwhere(new_area)
                 for pixel in points:
-                    print(len(points))
-                    if homogeneity(ct_arr[pixel[0], pixel[1], pixel[2]]):  # TODO is this hu?
+                    if homogeneity(ct_arr[pixel[0], pixel[1], pixel[2]]):
                         image[pixel[0], pixel[1], pixel[2]] = 1
-            i+=1
-            if i==2:
-                break
-        #      check if the pixels inside a range
-        # add whatever you want
-        # dilate again, and if 10 pixels added continue
-        #  image shold be the liver_seg
-        new_nifti = nib.Nifti1Image(image.astype(np.float), nib.load('/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case1_Aorta.nii.gz').affine)
-        nib.save(new_nifti, f'img.nii.gz')
+
+        liver_seg = image
         return liver_seg
 
-    def segmentLiver(self, aorta_nii, output_name):
-        # todo fix this function
-        ct_scan = self.ct_arr
+    def segmentLiver(self, aorta_nii):
+        """
+        Create a liver segmentation from aorta ground-truth, CT scan.
+        :param aorta_nii:
+        :return: Liver segmentation array.
+        """
 
-        body_seg = seg.IsolateBody(ct_scan)
+        body_seg = self.IsolateBody()
 
-        roi = seg.liver_roi(body_seg, ct_scan, aorta_nii)
-        liver_seg = seg.multipleSeedsRG(ct_scan, roi)
+        roi = self.liver_roi(body_seg, aorta_nii)
+        liver_seg = self.multipleSeedsRG(roi)
+
         new_nifti = nib.Nifti1Image(liver_seg.astype(np.float), self.nii_scan.affine)
-        nib.save(new_nifti, f'{output_name}_LiverSeg.nii.gz')
+        nib.save(new_nifti, f'{self.name}_LiverSeg.nii.gz')
 
         return liver_seg
 
 
 if __name__ == '__main__':
-    data_path = '/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data'  # fixme
+    data_path = '/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data'
+    results = []
     for file in os.listdir(data_path):
-        if 'CT' in file:
-            if 'Case1' in file:
-                name = file.split('.')[0]
-                seg = Segmentation(f'/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case1_CT.nii.gz',
-                                   name)
-                body_seg = seg.IsolateBody()
-                aorta_nii = nib.load(
-                    f'/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case1_Aorta.nii.gz')
-                roi = seg.liver_roi(body_seg, aorta_nii)
-                seg.multipleSeedsRG(roi)
-            # lungs_seg, cc, bb = seg.IsolateBS(body_seg)
-            #
-            # liver_seg = seg.multipleSeedsRG(roi)
-            #
-            # vod, dice = utils.evaluateSegmentation(img, zmin, zmax, gt_data, name)
-            # liver_roi(self, body_seg, aorta_nii)
+        if 'CT' in file and 'Case1' in file:
+            name = file.split('.')[0]
+            seg = Segmentation(f'{data_path}/{file}', name)
+            aorta_file = file.replace('CT', 'Aorta')
+            aorta_nii = nib.load(f'{data_path}/{aorta_file}')
 
-    # load = nib.load('/cs/casmip/public/for_aviv/MedicalImageProcessing/Targil1_data/Case2_CT.nii.gz')
-    # # body_seg = IsolateBody(load)
-    # # lungs_seg, cc, bb = IsolateBS(body_seg, load.affine)
-    # # lungs_band = ThreeDBand(body_seg, lungs_seg, bb, cc)
-    # roi = nib.load('/cs/usr/avivd/Desktop/Untitled.nii.gz').get_fdata()
+            liver_seg = seg.segmentLiver(aorta_nii)
+            gt_file = file.replace('CT', 'liver_segmentation')
+            gt = nib.load(f'{data_path}/{gt_file}')
+            gt_data = gt.get_fdata()
+
+            gt_data = utils.check_orientation(gt, gt_data)
+
+            name = file
+            name, vod_result, dice_result = utils.evaluateSegmentation(liver_seg, gt_data, name)
+            results.append((name, vod_result, dice_result))
+
+    utils.plot_results(results, 'Liver segmentation DICE and VOD comparison')
